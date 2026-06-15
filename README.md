@@ -51,15 +51,23 @@
 
 ### 4. 在 WPS 中走线上加载
 
-WPS 线上加载时，关键是让插件入口指向你发布后的站点根目录。
+这个项目已经补了一个线上安装页。WPS 里你看到的“已安装加载项”页面通常没有手动输入 URL 的输入框，所以推荐直接用浏览器完成安装。
 
-如果你的线上地址是：
+以当前仓库为例，线上安装步骤如下：
 
-- `https://<github-user>.github.io/<repo-name>/`
+1. 打开 `https://himotou.github.io/wps-plugins/publish.html`
+2. 先点“检测本机服务”
+3. 再点“安装 / 更新”
+4. 如果浏览器提示是否打开 WPS，请允许
+5. 回到 WPS 演示，检查功能区里是否出现“链接绑定”
 
-那么 WPS 线上插件地址就应该使用这个目录作为根路径，`ribbon.xml` 地址应为：
+如果之前装过本地调试版 `http://127.0.0.1:3890`，建议先在安装页点一次“卸载”，再点“安装 / 更新”，避免本地版本和线上版本混在一起。
 
-- `https://<github-user>.github.io/<repo-name>/ribbon.xml`
+当前线上关键地址是：
+
+- 站点首页：`https://himotou.github.io/wps-plugins/index.html`
+- 安装页：`https://himotou.github.io/wps-plugins/publish.html`
+- 插件描述：`https://himotou.github.io/wps-plugins/ribbon.xml`
 
 ### 5. 注意事项
 
