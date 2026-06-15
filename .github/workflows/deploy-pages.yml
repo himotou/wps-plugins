@@ -35,7 +35,10 @@ jobs:
         run: npm ci
 
       - name: Build
-        run: npm run build
+        env:
+          WPS_PUBLISH_SERVER_URL: https://himotou.github.io/wps-plugins/
+          WPS_PUBLISH_MULTI_USER: "true"
+        run: npm run build:publish
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
@@ -43,7 +46,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./dist
+          path: ./wps-addon-build
 
       - name: Deploy to GitHub Pages
         id: deployment

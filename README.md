@@ -17,7 +17,7 @@
 
 ## 线上发布到 GitHub
 
-这个项目可以直接发布成静态站点，用 GitHub Pages 承载 `dist` 目录内容。
+这个项目现在按 `wpsjs publish` 的发布方式来走，GitHub Pages 承载 `wps-addon-build` 目录内容。
 
 ### 1. 推送到 GitHub 仓库
 
@@ -33,7 +33,7 @@
 2. 打开 `Pages`
 3. `Source` 选择 `GitHub Actions`
 
-之后每次 push 到 `main`，都会自动构建并发布 `dist`。
+之后每次 push 到 `main`，都会自动构建并发布 `wps-addon-build`。
 
 ### 3. 确认线上地址
 
@@ -51,7 +51,7 @@
 
 ### 4. 在 WPS 中走线上加载
 
-这个项目已经补了一个线上安装页。WPS 里你看到的“已安装加载项”页面通常没有手动输入 URL 的输入框，所以推荐直接用浏览器完成安装。
+这个项目现在直接使用 `wpsjs publish` 生成的 `publish.html`。WPS 里你看到的“已安装加载项”页面通常没有手动输入 URL 的输入框，所以推荐直接用浏览器打开安装页完成安装。
 
 以当前仓库为例，线上安装步骤如下：
 

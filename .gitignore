@@ -8,18 +8,18 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+*.log
 
-# 运行时数据
-pids
-*.pid
-*.seed
-*.pid.lock
+# Playwright 测试生成文件
+.playwright-mcp/
+page-*.yaml
+console-*.log
 
-# 覆盖率目录
-coverage/
-.nyc_output/
+# 构建输出目录
+ws-addon-build/
+ws-addon-publish/
 
-# 编辑器目录和文件
+# 编辑器和 IDE 相关
 .vscode/
 .idea/
 *.swp
@@ -34,13 +34,19 @@ coverage/
 .env.test.local
 .env.production.local
 
-# WPS/Office 相关临时文件 (可选，视具体开发情况而定)
-*.tmp
-*.temp
-
-# TypeScript 编译输出 (如果 tsconfig.json 中指定了 outDir，通常包含在 dist 中，但也可单独忽略)
+# TypeScript 编译输出
 *.tsbuildinfo
 
 # 其他常见忽略
 Thumbs.db
 ehthumbs.db
+wps-addon-build/
+wps-addon-publish/
+.playwright-mcp/
+*.tmp
+*.temp
+
+# 忽略特定构建资源
+index-pkhpDJK.js
+index_*.css
+*.svg

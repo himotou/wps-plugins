@@ -16,6 +16,7 @@
 	"scripts": {
 		"dev": "vite --port 3890",
 		"build": "vite build",
+		"build:publish": "node scripts/publish-pages.js",
 		"preview": "vite preview",
 		"lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs --fix --ignore-path .gitignore",
 		"format": "prettier --write src/"
