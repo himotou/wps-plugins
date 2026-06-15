@@ -12,9 +12,13 @@ function GetUrlPath() {
         return path.substring(0, path.lastIndexOf('/'))
     }
 
-    const { protocol, hostname, port } = window.location
+    const { protocol, hostname, port, pathname } = window.location
     const portPart = port ? `:${port}` : ''
-    return `${protocol}//${hostname}${portPart}`
+    const cleanPath = pathname.endsWith('/') ? pathname.slice(0, -1) : pathname
+    const basePath = cleanPath && cleanPath !== '/index.html'
+        ? cleanPath.replace(/\/index\.html$/, '')
+        : ''
+    return `${protocol}//${hostname}${portPart}${basePath}`
 }
 
 function GetRouterHash() {
@@ -22,12 +26,12 @@ function GetRouterHash() {
         return ''
     }
 
-    return '/#'
+    return '#'
 }
 
 function BuildRouteUrl(routePath) {
     const normalizedRoute = routePath.startsWith('/') ? routePath : `/${routePath}`
-    return `${GetUrlPath()}${GetRouterHash()}${normalizedRoute}`
+    return `${GetUrlPath()}/${GetRouterHash()}${normalizedRoute}`
 }
 
 function AppendQuery(url, params) {
