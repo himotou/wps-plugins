@@ -192,7 +192,8 @@
     <script>
       const pluginRoot = new URL('./', window.location.href).toString();
       const ribbonUrl = new URL('ribbon.xml', pluginRoot).toString();
-      const serverId = getServerId();
+      const enableMultiUser = false;
+      const serverId = enableMultiUser ? getServerId() : undefined;
       const addon = {
         name: 'link-bind',
         addonType: 'wpp',
@@ -201,14 +202,25 @@
         customDomain: '',
         url: pluginRoot
       };
+      const localEndpoints = [
+        {
+          version: 'http://127.0.0.1:58890/version',
+          deploy: 'http://localhost:58890/deployaddons/runParams'
+        },
+        {
+          version: 'http://localhost:58890/version',
+          deploy: 'http://localhost:58890/deployaddons/runParams'
+        }
+      ];
 
       let serverVersion = 'wait';
+      let activeEndpoint = localEndpoints[0];
 
       document.getElementById('pluginRoot').textContent = pluginRoot;
       document.getElementById('pluginRibbon').textContent = ribbonUrl;
-      document.getElementById('installButton').addEventListener('click', () => installAddon('enable'));
-      document.getElementById('removeButton').addEventListener('click', () => installAddon('disable'));
-      document.getElementById('checkButton').addEventListener('click', checkLocalService);
+      document.getElementById('installButton').addEventListener('click', () => installAddon('enable', true));
+      document.getElementById('removeButton').addEventListener('click', () => installAddon('disable', true));
+      document.getElementById('checkButton').addEventListener('click', () => checkLocalService(true));
 
       function getServerId() {
         const key = 'wps_plugin_server_id';
@@ -238,54 +250,93 @@
       }
 
       function startRelayService() {
-        window.location.href = `ksoWPSCloudSvr://start=RelayHttpServer&serverId=${serverId}`;
+        const relayUrl = serverId
+          ? `ksoWPSCloudSvr://start=RelayHttpServer&serverId=${serverId}`
+          : 'ksoWPSCloudSvr://start=RelayHttpServer';
+
+        window.location.href = relayUrl;
+      }
+
+      function delay(duration) {
+        return new Promise(function(resolve) {
+          setTimeout(resolve, duration);
+        });
       }
 
       function createRequest() {
         return new XMLHttpRequest();
       }
 
-      function postLocal(url, body, onSuccess, onError, retryCount) {
-        const request = createRequest();
-        request.open('POST', url);
-        request.timeout = 3000;
+      function getServerHandshakeBody() {
+        return serverId ? JSON.stringify({ serverId: serverId }) : '{}';
+      }
 
-        request.onload = function() {
-          if (request.status >= 200 && request.status < 300) {
-            onSuccess(request.responseText);
-            return;
+      function postLocal(url, body, timeout) {
+        return new Promise(function(resolve, reject) {
+          const request = createRequest();
+          request.open('POST', url);
+          request.timeout = timeout || 3000;
+
+          request.onload = function() {
+            if (request.status >= 200 && request.status < 300) {
+              resolve(request.responseText);
+              return;
+            }
+
+            reject(new Error(`请求失败: ${request.status}`));
+          };
+
+          request.onerror = request.ontimeout = function() {
+            reject(new Error('本机 WPS 加载项服务未响应'));
+          };
+
+          request.send(body);
+        });
+      }
+
+      async function tryReadVersionOnce() {
+        let lastError = null;
+
+        for (let index = 0; index < localEndpoints.length; index += 1) {
+          const endpoint = localEndpoints[index];
+
+          try {
+            const response = await postLocal(endpoint.version, getServerHandshakeBody(), 3000);
+            activeEndpoint = endpoint;
+            serverVersion = response || '1.0.0';
+            return serverVersion;
+          } catch (error) {
+            lastError = error;
           }
+        }
 
-          if (retryCount > 0) {
-            startRelayService();
-            setTimeout(function() {
-              postLocal(url, body, onSuccess, onError, retryCount - 1);
-            }, 1200);
-            return;
+        throw lastError || new Error('本机 WPS 加载项服务未响应');
+      }
+
+      async function ensureLocalService(launchFromClick) {
+        if (launchFromClick) {
+          startRelayService();
+          await delay(1200);
+        }
+
+        let lastError = null;
+
+        for (let round = 0; round < 6; round += 1) {
+          try {
+            return await tryReadVersionOnce();
+          } catch (error) {
+            lastError = error;
+            await delay(round === 0 ? 1500 : 1200);
           }
+        }
 
-          onError(new Error(`请求失败: ${request.status}`));
-        };
-
-        request.onerror = request.ontimeout = function() {
-          if (retryCount > 0) {
-            startRelayService();
-            setTimeout(function() {
-              postLocal(url, body, onSuccess, onError, retryCount - 1);
-            }, 1200);
-            return;
-          }
-
-          onError(new Error('本机 WPS 加载项服务未响应'));
-        };
-
-        request.send(body);
+        throw lastError || new Error('本机 WPS 加载项服务未响应');
       }
 
       function buildPayload(data) {
         const raw = JSON.stringify(data);
 
-        if (serverVersion !== 'wait' && serverVersion >= '1.0.2') {
+        if (serverId !== undefined && serverVersion !== 'wait' && serverVersion >= '1.0.2') {
           return JSON.stringify({
             serverId: serverId,
             data: encodeBase64(raw)
@@ -295,22 +346,11 @@
         return encodeBase64(raw);
       }
 
-      function readVersion() {
-        return new Promise(function(resolve, reject) {
-          postLocal(
-            'http://127.0.0.1:58890/version',
-            JSON.stringify({ serverId: serverId }),
-            function(response) {
-              serverVersion = response || '1.0.0';
-              resolve(serverVersion);
-            },
-            reject,
-            2
-          );
-        });
+      function readVersion(launchFromClick) {
+        return ensureLocalService(launchFromClick);
       }
 
-      function checkLocalService() {
+      function checkLocalService(launchFromClick) {
         setStatus('正在检测本机 WPS 加载项服务...');
 
         readVersion()
@@ -318,37 +358,27 @@
             setStatus(`检测成功，本机服务版本：${version}`);
           })
           .catch(function(error) {
-            setStatus(`检测失败：${error.message}`, true);
+            setStatus(`检测失败：${error.message}。如果浏览器拦截了打开 WPS，请允许后再点一次。`, true);
           });
       }
 
-      function installAddon(cmd) {
+      function installAddon(cmd, launchFromClick) {
         const actionLabel = cmd === 'enable' ? '安装' : '卸载';
         setStatus(`正在${actionLabel}插件...`);
 
-        readVersion()
+        readVersion(launchFromClick)
           .then(function() {
-            return new Promise(function(resolve, reject) {
-              const payload = buildPayload({
-                cmd: cmd,
-                name: addon.name,
-                url: addon.url,
-                addonType: addon.addonType,
-                online: addon.online,
-                version: addon.version,
-                customDomain: addon.customDomain
-              });
-
-              postLocal(
-                'http://127.0.0.1:58890/deployaddons/runParams',
-                payload,
-                function(response) {
-                  resolve(response);
-                },
-                reject,
-                1
-              );
+            const payload = buildPayload({
+              cmd: cmd,
+              name: addon.name,
+              url: addon.url,
+              addonType: addon.addonType,
+              online: addon.online,
+              version: addon.version,
+              customDomain: addon.customDomain
             });
+
+            return postLocal(activeEndpoint.deploy, payload, 4000);
           })
           .then(function(response) {
             if (response === 'OK' || response === '') {
@@ -359,7 +389,7 @@
             setStatus(`${actionLabel}返回结果：${response}`, false);
           })
           .catch(function(error) {
-            setStatus(`${actionLabel}失败：${error.message}`, true);
+            setStatus(`${actionLabel}失败：${error.message}。如果浏览器拦截了打开 WPS，请允许后再点一次。`, true);
           });
       }
     </script>
