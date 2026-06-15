@@ -28,17 +28,10 @@ const publishAddon = {
 };
 
 function writePublishList() {
-  const nextList = {};
+  const nextList = {
+    [publishAddon.name]: publishAddon
+  };
 
-  if (fs.existsSync(publishListPath)) {
-    try {
-      Object.assign(nextList, JSON.parse(fs.readFileSync(publishListPath, 'utf8')));
-    } catch (error) {
-      console.warn('Failed to parse existing publishlist.json, recreating it.');
-    }
-  }
-
-  nextList[publishAddon.name] = publishAddon;
   fs.writeFileSync(publishListPath, JSON.stringify(nextList));
 }
 
@@ -58,6 +51,11 @@ function createPublishPage() {
   publishHtml = publishHtml.replace(
     /SERVERID_REPLEASE_STRING/,
     enableMultiUser ? 'getServerId()' : 'undefined'
+  );
+  publishHtml = publishHtml.replace(
+    /function LoadAddons\(\) \{([\s\S]*?)InitSdk\(\);([\s\S]*?)\}/,
+    `function LoadAddons() {$1LoadPublishAddons();
+            InitSdk();$2}`
   );
 
   fs.writeFileSync(path.join(publishRoot, 'publish.html'), publishHtml);
