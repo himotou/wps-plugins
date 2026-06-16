@@ -14,7 +14,7 @@
 		"redux": "^4.0.5"
 	},
 	"scripts": {
-		"dev": "vite --port 3890",
+		"dev": "vite --port 3889",
 		"build": "vite build",
 		"build:publish": "node scripts/publish-pages.js",
 		"preview": "vite preview",
