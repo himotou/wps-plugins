@@ -163,6 +163,7 @@ var ribbon = {
             shapeId: activeShapeId,
             start: explicitSelectionState.start,
             length: explicitSelectionState.length,
+            selectionType: selectionType,
             updatedAt: Date.now(),
             confirmedSelection: true
         }
@@ -181,7 +182,8 @@ var ribbon = {
             slideId: typeof context.slideId === "number" ? context.slideId : 0,
             shapeId: context.shapeId || 0,
             start: typeof context.start === "number" ? context.start : 0,
-            length: typeof context.length === "number" ? context.length : 0
+            length: typeof context.length === "number" ? context.length : 0,
+            selectionType: typeof context.selectionType === "number" ? context.selectionType : null
         }
     },
 
@@ -250,6 +252,7 @@ var ribbon = {
                 shapeId: context.shapeId || 0,
                 start: typeof context.start === "number" ? context.start : 0,
                 length: typeof context.length === "number" ? context.length : 0,
+                selectionType: typeof context.selectionType === "number" ? context.selectionType : null,
                 confirmedSelection: context.confirmedSelection === true,
                 updatedAt: typeof context.updatedAt === "number" ? context.updatedAt : 0
             }
@@ -425,8 +428,9 @@ var ribbon = {
             }
 
             const ownerShape = this.getOwnerShape(selection, textRange)
-            if (ownerShape && ownerShape.Parent && typeof ownerShape.Parent.SlideID === "number") {
-                return ownerShape.Parent.SlideID
+            const ownerSlideId = this.getSlideIdFromShape(ownerShape)
+            if (ownerSlideId) {
+                return ownerSlideId
             }
 
             const presentation = window.Application.ActivePresentation
@@ -443,14 +447,14 @@ var ribbon = {
 
     getActiveShapeId: function(selection, textRange) {
         try {
-            if (selection && selection.ShapeRange && selection.ShapeRange.Count > 0) {
-                const shape = selection.ShapeRange.Item(1)
-                return shape ? shape.Id : 0
-            }
-
             const ownerShape = this.getOwnerShape(selection, textRange)
             if (ownerShape && typeof ownerShape.Id === "number") {
                 return ownerShape.Id
+            }
+
+            if (selection && selection.ShapeRange && selection.ShapeRange.Count > 0) {
+                const shape = selection.ShapeRange.Item(1)
+                return shape ? shape.Id : 0
             }
         } catch (error) {
             console.log("获取形状ID失败:", error)
@@ -485,6 +489,27 @@ var ribbon = {
         return null
     },
 
+    getSlideIdFromShape: function(shape) {
+        try {
+            let current = shape
+            for (let depth = 0; current && depth < 8; depth += 1) {
+                if (current.Parent && typeof current.Parent.SlideID === "number") {
+                    return current.Parent.SlideID
+                }
+
+                if (current.Parent && current.Parent.Parent && typeof current.Parent.Parent.SlideID === "number") {
+                    return current.Parent.Parent.SlideID
+                }
+
+                current = current.Parent
+            }
+        } catch (error) {
+            console.log("回溯形状所属幻灯片失败:", error)
+        }
+
+        return 0
+    },
+
     applyHyperlink: function(payload) {
         try {
             const presentation = window.Application.ActivePresentation
@@ -514,7 +539,8 @@ var ribbon = {
                 return false
             }
 
-            const success = this.applyToStoredSelection(context, url, linkText, screenTip)
+            const success = this.applyToMatchingLiveSelection(context, url, linkText, screenTip)
+                || this.applyToStoredSelection(context, url, linkText, screenTip)
 
             if (success) {
                 this.clearStoredSelectionContext()
@@ -568,6 +594,37 @@ var ribbon = {
         return null
     },
 
+    applyToMatchingLiveSelection: function(context, url, linkText, screenTip) {
+        try {
+            const selection = this.getActiveSelection()
+            const textRange = this.getSelectionTextRange(selection)
+            const state = this.getTextSelectionState(textRange)
+
+            if (!textRange || !state || !state.hasSelection) {
+                return false
+            }
+
+            const ownerShape = this.getOwnerShape(selection, textRange)
+            const liveShapeId = ownerShape && typeof ownerShape.Id === "number"
+                ? ownerShape.Id
+                : this.getActiveShapeId(selection, textRange)
+            const shapeMatches = !!context.shapeId && !!liveShapeId && String(context.shapeId) === String(liveShapeId)
+            const rangeMatches = state.start === context.start && state.length === context.length
+            const textMatches = state.text === context.text
+
+            if (!textMatches && !(shapeMatches && rangeMatches)) {
+                this.logSelectionDebug("实时选区与缓存选区不一致，跳过实时写入", context, selection, textRange)
+                return false
+            }
+
+            this.applyToLiveSelection(textRange, url, linkText, screenTip)
+            return true
+        } catch (error) {
+            console.log("实时选区写入失败，尝试缓存选区:", error)
+            return false
+        }
+    },
+
     applyToLiveSelection: function(textRange, url, linkText, screenTip) {
         if (typeof textRange.Length === "number" && textRange.Length === 0) {
             textRange.Text = linkText
@@ -581,17 +638,17 @@ var ribbon = {
     },
 
     applyToStoredSelection: function(context, url, linkText, screenTip) {
-        const slide = this.findSlideById(context.slideId)
-        const shape = this.findShapeById(slide, context.shapeId)
+        const target = this.resolveStoredTextTarget(context)
 
-        if (!shape || !shape.TextFrame || !shape.TextFrame.TextRange) {
+        if (!target || !target.textRange) {
+            this.logSelectionDebug("缓存选区无法定位到可写文本范围", context)
             alert("当前选区无法写入超链接")
             return false
         }
 
-        const textRange = shape.TextFrame.TextRange
-        const start = typeof context.start === "number" ? context.start : 0
-        const length = typeof context.length === "number" ? context.length : 0
+        const textRange = target.textRange
+        const start = typeof target.start === "number" ? target.start : 0
+        const length = typeof target.length === "number" ? target.length : 0
         if (length === 0) {
             return this.insertIntoStoredTextRange(textRange, start, url, linkText, screenTip)
         }
@@ -615,6 +672,121 @@ var ribbon = {
         this.replaceTextRangeHyperlink(targetRange, url, linkText, screenTip)
         targetRange.Select()
         return true
+    },
+
+    resolveStoredTextTarget: function(context) {
+        const slide = this.findSlideById(context.slideId)
+        const shape = this.findShapeById(slide, context.shapeId)
+        const directTextRange = this.getShapeTextRange(shape)
+
+        if (directTextRange) {
+            const match = this.getTextRangeMatch(directTextRange, context)
+            return {
+                textRange: directTextRange,
+                start: match ? match.start : context.start,
+                length: match ? match.length : context.length
+            }
+        }
+
+        const nestedTarget = this.findMatchingTextTargetInShape(shape, context)
+        if (nestedTarget) {
+            return nestedTarget
+        }
+
+        return null
+    },
+
+    getShapeTextRange: function(shape) {
+        try {
+            if (shape && shape.TextFrame && shape.TextFrame.TextRange) {
+                return shape.TextFrame.TextRange
+            }
+        } catch (error) {
+            console.log("读取形状文本范围失败:", error)
+        }
+
+        return null
+    },
+
+    getTextRangeMatch: function(textRange, context) {
+        const start = typeof context.start === "number" ? context.start : 0
+        const length = typeof context.length === "number" ? context.length : 0
+        const selectedText = typeof context.text === "string" ? context.text : ""
+
+        if (!textRange || !selectedText || length <= 0) {
+            return null
+        }
+
+        try {
+            const candidateRange = textRange.Characters(start, length)
+            if (candidateRange && candidateRange.Text === selectedText) {
+                return { start: start, length: length }
+            }
+        } catch (error) {
+            console.log("按原始位置匹配文本失败:", error)
+        }
+
+        try {
+            const fullText = textRange.Text || ""
+            const index = fullText.indexOf(selectedText)
+            if (index >= 0) {
+                return {
+                    start: index + 1,
+                    length: selectedText.length
+                }
+            }
+        } catch (error) {
+            console.log("按文本内容匹配文本失败:", error)
+        }
+
+        return null
+    },
+
+    findMatchingTextTargetInShape: function(shape, context, depth) {
+        if (!shape || (typeof depth === "number" && depth > 8)) {
+            return null
+        }
+
+        const collections = this.getNestedShapeCollections(shape)
+        for (let collectionIndex = 0; collectionIndex < collections.length; collectionIndex += 1) {
+            const target = this.findMatchingTextTargetInCollection(collections[collectionIndex], context, (depth || 0) + 1)
+            if (target) {
+                return target
+            }
+        }
+
+        return null
+    },
+
+    findMatchingTextTargetInCollection: function(shapes, context, depth) {
+        try {
+            if (!shapes || !shapes.Count || depth > 8) {
+                return null
+            }
+
+            for (let index = 1; index <= shapes.Count; index += 1) {
+                const shape = shapes.Item(index)
+                const textRange = this.getShapeTextRange(shape)
+                const match = this.getTextRangeMatch(textRange, context)
+
+                if (match) {
+                    return {
+                        textRange: textRange,
+                        start: match.start,
+                        length: match.length
+                    }
+                }
+
+                const nestedTarget = this.findMatchingTextTargetInShape(shape, context, depth + 1)
+                if (nestedTarget) {
+                    return nestedTarget
+                }
+            }
+        } catch (error) {
+            console.log("查找子形状文本失败:", error)
+        }
+
+        return null
     },
 
     insertIntoStoredTextRange: function(textRange, start, url, linkText, screenTip) {
@@ -663,11 +835,27 @@ var ribbon = {
             console.log("清理文本超链接失败:", error)
         }
 
-        const actionSetting = textRange.ActionSettings.Item(this.getMouseClickEnum())
-        actionSetting.Action = this.getHyperlinkActionEnum()
-        actionSetting.Hyperlink.Address = url
-        actionSetting.Hyperlink.SubAddress = ""
-        actionSetting.Hyperlink.ScreenTip = screenTip || linkText
+        try {
+            const actionSetting = textRange.ActionSettings.Item(this.getMouseClickEnum())
+            actionSetting.Action = this.getHyperlinkActionEnum()
+            actionSetting.Hyperlink.Address = url
+            actionSetting.Hyperlink.SubAddress = ""
+            actionSetting.Hyperlink.ScreenTip = screenTip || linkText
+            return true
+        } catch (error) {
+            console.log("通过 ActionSettings 写入超链接失败:", error)
+        }
+
+        try {
+            if (textRange.Hyperlinks && typeof textRange.Hyperlinks.Add === "function") {
+                textRange.Hyperlinks.Add(textRange, url, "", screenTip || linkText, linkText)
+                return true
+            }
+        } catch (error) {
+            console.log("通过 Hyperlinks.Add 写入超链接失败:", error)
+        }
+
+        throw new Error("当前选区不支持通过 JS 写入超链接")
     },
 
     getMouseClickEnum: function() {
@@ -704,17 +892,81 @@ var ribbon = {
                 return null
             }
 
-            for (let index = 1; index <= slide.Shapes.Count; index += 1) {
-                const shape = slide.Shapes.Item(index)
-                if (shape && shape.Id === shapeId) {
-                    return shape
-                }
-            }
+            return this.findShapeInCollection(slide.Shapes, shapeId, 0)
         } catch (error) {
             console.log("查找形状失败:", error)
         }
 
         return null
+    },
+
+    findShapeInCollection: function(shapes, shapeId, depth) {
+        try {
+            if (!shapes || !shapes.Count || depth > 8) {
+                return null
+            }
+
+            for (let index = 1; index <= shapes.Count; index += 1) {
+                const shape = shapes.Item(index)
+                if (shape && String(shape.Id) === String(shapeId)) {
+                    return shape
+                }
+
+                const collections = this.getNestedShapeCollections(shape)
+                for (let collectionIndex = 0; collectionIndex < collections.length; collectionIndex += 1) {
+                    const nestedShape = this.findShapeInCollection(collections[collectionIndex], shapeId, depth + 1)
+                    if (nestedShape) {
+                        return nestedShape
+                    }
+                }
+            }
+        } catch (error) {
+            console.log("递归查找形状失败:", error)
+        }
+
+        return null
+    },
+
+    getNestedShapeCollections: function(shape) {
+        const collections = []
+
+        try {
+            if (shape && shape.GroupItems && shape.GroupItems.Count > 0) {
+                collections.push(shape.GroupItems)
+            }
+        } catch (error) {
+            console.log("读取 GroupItems 失败:", error)
+        }
+
+        try {
+            if (shape && shape.Shapes && shape.Shapes.Count > 0) {
+                collections.push(shape.Shapes)
+            }
+        } catch (error) {
+            console.log("读取子 Shapes 失败:", error)
+        }
+
+        return collections
+    },
+
+    logSelectionDebug: function(label, context, selection, textRange) {
+        try {
+            const activeSelection = selection || this.getActiveSelection()
+            const activeTextRange = textRange || this.getSelectionTextRange(activeSelection)
+            const ownerShape = this.getOwnerShape(activeSelection, activeTextRange)
+
+            console.log("[link-bind] " + label, {
+                context: context || null,
+                selectionType: this.getSelectionType(activeSelection),
+                liveText: activeTextRange && typeof activeTextRange.Text === "string" ? activeTextRange.Text : "",
+                liveStart: activeTextRange && typeof activeTextRange.Start === "number" ? activeTextRange.Start : 0,
+                liveLength: activeTextRange && typeof activeTextRange.Length === "number" ? activeTextRange.Length : 0,
+                ownerShapeId: ownerShape && typeof ownerShape.Id === "number" ? ownerShape.Id : 0,
+                ownerSlideId: this.getSlideIdFromShape(ownerShape)
+            })
+        } catch (error) {
+            console.log("[link-bind] 输出选区调试信息失败:", error)
+        }
     },
 
     GetImage: function(control) {
