@@ -62,6 +62,25 @@
 
 官方 `publish.html` 依赖 WPS 本机加载项服务写入本地 `publish.xml`。如果页面只显示表头，没有出现 `link-bind` 行，通常说明本机加载项服务没有响应，这时线上 `ribbon.xml` 是否可访问不能代表安装流程已经跑通。
 
+如果 Mac 上官方安装页一直只有表头，可以使用兜底安装脚本写入本地 `publish.xml`：
+
+```bash
+curl -L https://himotou.github.io/wps-plugins/install-mac.command -o /tmp/link-bind-install.command
+chmod +x /tmp/link-bind-install.command
+/tmp/link-bind-install.command
+```
+
+脚本会备份已有的 `publish.xml`，写入当前线上加载项地址，并在发现 `link-bind` 的旧授权缓存时备份后清除。执行后需要完全退出 WPS 再重新打开 WPS 演示。
+
+如果 Windows 上官方安装页没有完成安装，可以下载并执行兜底安装脚本：
+
+```bat
+curl -L https://himotou.github.io/wps-plugins/install-win.cmd -o %TEMP%\link-bind-install.cmd
+%TEMP%\link-bind-install.cmd
+```
+
+Windows 脚本会写入 `%APPDATA%\kingsoft\wps\jsaddons\publish.xml`，并在发现 `link-bind` 的旧授权缓存时备份后删除对应的 `authaddin.json`。执行后同样需要完全退出 WPS 再重新打开 WPS 演示。
+
 如果之前装过本地调试版 `http://127.0.0.1:3890`，建议先在安装页点一次“卸载”，再点“安装 / 更新”，避免本地版本和线上版本混在一起。
 
 当前线上关键地址是：
